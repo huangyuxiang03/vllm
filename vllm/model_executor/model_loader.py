@@ -8,8 +8,7 @@ from transformers import PretrainedConfig
 
 from vllm.config import ModelConfig
 from vllm.model_executor.models import *  # pylint: disable=wildcard-import
-from vllm.model_executor.weight_utils import (get_quant_config,
-                                              initialize_dummy_weights)
+from vllm.model_executor.weight_utils import get_quant_config, initialize_dummy_weights
 
 # TODO(woosuk): Lazy-load the model classes.
 _MODEL_REGISTRY = {
@@ -19,6 +18,8 @@ _MODEL_REGISTRY = {
     "BaichuanForCausalLM": BaichuanForCausalLM,  # baichuan-13b
     "BloomForCausalLM": BloomForCausalLM,
     "ChatGLMModel": ChatGLMForCausalLM,
+    "CPMDragonflyForCausalLM": CPMDragonflyForCausalLM,
+    "CPMMistralForCausalLM": CPMMistralForCausalLM,
     "FalconForCausalLM": FalconForCausalLM,
     "GPT2LMHeadModel": GPT2LMHeadModel,
     "GPTBigCodeForCausalLM": GPTBigCodeForCausalLM,

@@ -170,6 +170,46 @@ class DynamicNTKScalingRotaryEmbedding(RotaryEmbedding):
         return cache
 
 
+class CPMNTKScalingRotaryEmbedding(RotaryEmbedding):
+    """RotaryEmbedding extended with NTK scaling using zxr exponential part"""
+
+    def __init__(
+        self,
+        head_size: int,
+        rotary_dim: int,
+        max_position_embeddings: int,
+        base: int,
+        is_neox_style: bool,
+        scaling_factor: float,
+        exponential_strategy: str = "official",
+    ) -> None:
+        self.scaling_factor = scaling_factor
+        self.exponential_strategy = exponential_strategy
+        super().__init__(head_size, rotary_dim, max_position_embeddings, base,
+                         is_neox_style)
+
+    def _compute_cos_sin_cache(self) -> torch.Tensor:
+        # NOTE(woosuk): self.max_position_embeddings is the original
+        # maximum length before applying the rope scaling.
+        # Thus, the maximum length after applying the rope scaling is
+        # self.max_position_embeddings * self.scaling_factor.
+        max_len = self.max_position_embeddings * self.scaling_factor
+        if self.exponential_strategy == "official":
+            base = self.base * (self.scaling_factor ** (self.rotary_dim / (self.rotary_dim - 2)))
+        elif self.exponential_strategy == "zxr":
+            base = self.base * (self.scaling_factor ** math.log(7, 4))
+        else:
+            raise ValueError(f"Unsupported exponential_strategy {self.exponential_strategy}")
+        inv_freq = self._compute_inv_freq(base)
+        t = torch.arange(max_len, dtype=torch.float, device="cuda")
+
+        freqs = torch.einsum("i,j -> ij", t, inv_freq)
+        cos = freqs.cos()
+        sin = freqs.sin()
+        cache = torch.cat((cos, sin), dim=-1)
+        return cache
+
+
 # Inverse dim formula to find dim based on number of rotations
 def _yarn_find_correction_dim(num_rotations: int,
                               dim: int,
@@ -226,6 +266,7 @@ class YaRNScalingRotaryEmbedding(RotaryEmbedding):
         base: int,
         is_neox_style: bool,
         scaling_factor: float,
+        is_ntk_by_parts: bool = False,
         *,
         extrapolation_factor: float = 1,
         attn_factor: float = 1,
@@ -238,8 +279,11 @@ class YaRNScalingRotaryEmbedding(RotaryEmbedding):
         self.beta_fast = beta_fast
         self.beta_slow = beta_slow
         # Get n-d magnitude scaling corrected for interpolation
-        self.mscale = float(
-            _yarn_get_mscale(self.scaling_factor) * attn_factor)
+        if is_ntk_by_parts:
+            self.mscale = 1.
+        else:
+            self.mscale = float(
+                _yarn_get_mscale(self.scaling_factor) * attn_factor)
         super().__init__(head_size, rotary_dim, max_position_embeddings, base,
                          is_neox_style)
 
@@ -292,14 +336,19 @@ def get_rope(
                                                       max_position, base,
                                                       is_neox_style,
                                                       scaling_factor)
+        elif scaling_type == "cpm_ntk":
+            rotary_emb = CPMNTKScalingRotaryEmbedding(
+                head_size, rotary_dim, max_position, base, is_neox_style, scaling_factor,
+                exponential_strategy=rope_scaling.get("exponential_strategy", "official")
+            )
         elif scaling_type == "dynamic":
             rotary_emb = DynamicNTKScalingRotaryEmbedding(
                 head_size, rotary_dim, max_position, base, is_neox_style,
                 scaling_factor)
         elif scaling_type == "yarn":
-            original_max_position = rope_scaling[
-                "original_max_position_embeddings"]
-            assert max_position == original_max_position * scaling_factor
+            original_max_position = rope_scaling.get("original_max_position_embeddings", max_position // scaling_factor)
+            is_ntk_by_parts = rope_scaling.get("is_ntk_by_parts", False)
+            # assert max_position == original_max_position * scaling_factor
             extra_kwargs = {
                 k: v
                 for k, v in rope_scaling.items()
@@ -310,6 +359,7 @@ def get_rope(
                                                     original_max_position,
                                                     base, is_neox_style,
                                                     scaling_factor,
+                                                    is_ntk_by_parts,
                                                     **extra_kwargs)
         else:
             raise ValueError(f"Unknown RoPE scaling type {scaling_type}")

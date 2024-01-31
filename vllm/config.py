@@ -429,7 +429,7 @@ def _get_and_verify_max_len(
             # If max_model_len is specified, we use it.
             return max_model_len
 
-        default_max_len = 2048
+        default_max_len = 4096
         logger.warning(
             "The model's config.json does not contain any of the following "
             "keys to determine the original maximum length of the model: "
