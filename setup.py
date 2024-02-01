@@ -266,9 +266,9 @@ def get_requirements() -> List[str]:
 
 
 setuptools.setup(
-    name="vllm",
+    name="vllm-cpm",
     version=get_vllm_version(),
-    author="vLLM Team",
+    author="ModelBest Inc.",
     license="Apache 2.0",
     description=("A high-throughput and memory-efficient inference and "
                  "serving engine for LLMs"),
